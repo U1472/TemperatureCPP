@@ -1,0 +1,37 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\immme\\Desktop\\\u041C\u043E\u0438 \u043F\u0440\u043E\u0435\u043A\u0442\u044B\\TemperatureCPP\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{0F5915F8-2727-4EDD-A027-B80E0C611B3D}|TemperatureCPP\\TemperatureCPP.vcxproj|C:\\Users\\immme\\Desktop\\\u041C\u043E\u0438 \u043F\u0440\u043E\u0435\u043A\u0442\u044B\\TemperatureCPP\\TemperatureCPP\\TemperatureCPP.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{0F5915F8-2727-4EDD-A027-B80E0C611B3D}|TemperatureCPP\\TemperatureCPP.vcxproj|solutionrelative:TemperatureCPP\\TemperatureCPP.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 506,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "TemperatureCPP.cpp",
+              "DocumentMoniker": "C:\\Users\\immme\\Desktop\\\u041C\u043E\u0438 \u043F\u0440\u043E\u0435\u043A\u0442\u044B\\TemperatureCPP\\TemperatureCPP\\TemperatureCPP.cpp",
+              "RelativeDocumentMoniker": "TemperatureCPP\\TemperatureCPP.cpp",
+              "ToolTip": "C:\\Users\\immme\\Desktop\\\u041C\u043E\u0438 \u043F\u0440\u043E\u0435\u043A\u0442\u044B\\TemperatureCPP\\TemperatureCPP\\TemperatureCPP.cpp",
+              "RelativeToolTip": "TemperatureCPP\\TemperatureCPP.cpp",
+              "ViewState": "AgIAALwBAAAAAAAAAAAAAM4BAABuAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2026-09-18T22:08:10.039Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
