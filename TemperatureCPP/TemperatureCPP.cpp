@@ -23,11 +23,12 @@
 #define IDC_EDIT_TMAX       1011
 #define IDC_BTN_START       1012
 #define IDC_CHK_WATCHTMAX   1013
-#define IDC_CHK_DRAWABLE    1014
-#define IDC_RADIO_TRIPLE    1015
-#define IDC_RADIO_QUAD      1016
-#define IDC_RADIO_QUINT     1017
-#define IDC_LABEL_STEPS     1018
+#define IDC_CHK_JACOBI      1014
+#define IDC_CHK_DRAWABLE    1015
+#define IDC_RADIO_TRIPLE    1016
+#define IDC_RADIO_QUAD      1017
+#define IDC_RADIO_QUINT     1018
+#define IDC_LABEL_STEPS     1019
 #define IDC_STATIC_BASE     1200
 
 #define DRAW_X 280
@@ -42,7 +43,7 @@ WCHAR szWindowClass[MAX_LOADSTRING];
 HWND hEditA, hEditB, hEditF, hEditG;
 HWND hEditTStart, hEditTEnd, hEditLambda, hEditN, hEditDeltaX, hEditEpsilon, hEditTMax;
 HWND hBtnStart;
-HWND hChkWatchTMax, hChkDrawable;
+HWND hChkWatchTMax, hChkDrawable, hChkJacobi;
 HWND hRadioTriple, hRadioQuad, hRadioQuint;
 HWND hLabelSteps;
 
@@ -115,10 +116,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     }
     return (int)msg.wParam;
 }
-
-
-
-
 
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
@@ -195,10 +192,13 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
     hChkDrawable = CreateWindowW(L"BUTTON", L"Рисовать результат",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
         10, y, 240, 22, hWnd, (HMENU)IDC_CHK_DRAWABLE, hInstance, nullptr);
-    SendMessage(hChkDrawable, BM_SETCHECK, BST_CHECKED, 0);
+    y += 25;
+    hChkJacobi = hChkDrawable = CreateWindowW(L"BUTTON", L"Использовать явную схему",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        10, y, 240, 22, hWnd, (HMENU)IDC_CHK_JACOBI, hInstance, nullptr);
     y += 35;
 
-    // Кнопка «Старт»
+    // Кнопка "Старт"
     hBtnStart = CreateWindowW(L"BUTTON", L"Старт",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         10, y, 120, 32, hWnd, (HMENU)IDC_BTN_START, hInstance, nullptr);
@@ -259,6 +259,15 @@ static void DoCalculation(HWND hWnd)
         return;
     }
 
+    wchar_t msg[512];
+    bool isExplicit = false;
+
+    if (IsDlgButtonChecked(hWnd, IDC_CHK_JACOBI) != BST_CHECKED) {
+    }
+    else {
+        isExplicit = true;
+    }
+
     double C_min = a * temperatureStart * temperatureStart * temperatureStart
         + b * temperatureStart * temperatureStart
         + f * temperatureStart + g;
@@ -273,7 +282,8 @@ static void DoCalculation(HWND hWnd)
         MessageBoxW(hWnd, msg, L"Предупреждение", MB_OK | MB_ICONWARNING);
     }
 
-    std::vector<double> pieces(intervalCount + 1);   // +1
+    std::vector<double> pieces(intervalCount + 1);
+
     pieces[0] = temperatureEnd;
     for (int i = 1; i <= intervalCount; ++i) pieces[i] = temperatureStart;
 
@@ -285,16 +295,96 @@ static void DoCalculation(HWND hWnd)
     }
 
     int t = 0;
-    while (fabs(pieces[intervalCount] - temperatureEnd) > accuracy && tMax >= t) {
-        for (int i = 1; i < intervalCount; ++i) {
-            double C = FindC(a, b, f, g, pieces[i]);
-            pieces[i] += lambda * deltaT * (pieces[i + 1] - 2 * pieces[i] + pieces[i - 1]) / (deltaX * deltaX * C);
+    if (isExplicit)
+    {
+        std::vector<double> next(intervalCount + 1);
+        while (fabs(pieces[intervalCount] - temperatureEnd) > accuracy && tMax >= t) {
+            next[0] = pieces[0];
+
+            for (int i = 1; i < intervalCount; ++i) {
+                double C = FindC(a, b, f, g, pieces[i]);
+                next[i] = pieces[i]
+                    + lambda * deltaT
+                    * (pieces[i + 1] - 2 * pieces[i] + pieces[i - 1])
+                    / (deltaX * deltaX * C);
+            }
+
+            int last = intervalCount;
+            double C = FindC(a, b, f, g, pieces[last]);
+            next[last] = pieces[last]
+                + deltaT * lambda * 2 * (pieces[last - 1] - pieces[last])
+                / (deltaX * deltaX * C);
+
+            pieces.swap(next);
+            ++t;
         }
-        int last = intervalCount;
-        double C = FindC(a, b, f, g, pieces[last]);
-        pieces[last] += deltaT * lambda * 2 * (pieces[last - 1] - pieces[last]) / (deltaX * deltaX * C);
-        ++t;
     }
+    else
+    {
+        std::vector<double> next(intervalCount + 1);
+
+        std::vector<double> lower(intervalCount + 1);
+        std::vector<double> diag(intervalCount + 1);
+        std::vector<double> upper(intervalCount + 1);
+        std::vector<double> rhs(intervalCount + 1);
+
+        std::vector<double> cPrime(intervalCount + 1);
+        std::vector<double> dPrime(intervalCount + 1);
+
+        const int N = intervalCount;
+
+        while (fabs(pieces[N] - temperatureEnd) > accuracy && tMax >= t)
+        {
+            for (int i = 1; i <= N; ++i)
+            {
+                double C = FindC(a, b, f, g, pieces[i]);
+                double alpha = deltaT * lambda / (deltaX * deltaX * C);
+
+                lower[i] = -alpha;
+                diag[i] = 1.0 + 2.0 * alpha;
+                upper[i] = -alpha;
+                rhs[i] = pieces[i];
+            }
+
+            {
+                double C = FindC(a, b, f, g, pieces[1]);
+                double alpha = deltaT * lambda / (deltaX * deltaX * C);
+                lower[1] = 0.0;
+                // diag[1] и upper[1] уже корректны из общего цикла
+                rhs[1] += alpha * temperatureEnd;
+            }
+
+            {
+                double C = FindC(a, b, f, g, pieces[N]);
+                double alpha = deltaT * lambda / (deltaX * deltaX * C);
+                lower[N] = -2.0 * alpha;
+                upper[N] = 0.0;
+                diag[N] = 1.0 + 2.0 * alpha;
+            }
+
+            cPrime[1] = upper[1] / diag[1];
+            dPrime[1] = rhs[1] / diag[1];
+
+            for (int i = 2; i <= N; ++i)
+            {
+                double denom = diag[i] - lower[i] * cPrime[i - 1];
+                cPrime[i] = upper[i] / denom;
+                dPrime[i] = (rhs[i] - lower[i] * dPrime[i - 1]) / denom;
+            }
+
+            next[N] = dPrime[N];
+            for (int i = N - 1; i >= 1; --i)
+            {
+                next[i] = dPrime[i] - cPrime[i] * next[i + 1];
+            }
+            next[0] = pieces[0];
+
+            pieces.swap(next);
+
+            ++t;
+        }
+    }
+
 
     g_pieces = std::move(pieces);
     g_hasResult = true;
