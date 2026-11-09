@@ -193,7 +193,7 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
         10, y, 240, 22, hWnd, (HMENU)IDC_CHK_DRAWABLE, hInstance, nullptr);
     y += 25;
-    hChkJacobi = hChkDrawable = CreateWindowW(L"BUTTON", L"Использовать явную схему",
+    hChkJacobi = CreateWindowW(L"BUTTON", L"Использовать явную схему",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
         10, y, 240, 22, hWnd, (HMENU)IDC_CHK_JACOBI, hInstance, nullptr);
     y += 35;
