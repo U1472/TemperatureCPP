@@ -1,0 +1,36 @@
+# Служебные файлы Visual Studio (User, Suo, Опции сборки)
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+
+# Папки со скомпилированными файлами (артефакты сборки)
+# Сюда попадают тяжелые .exe, .obj, .pch файлы, которые создаются заново при запуске
+Debug/
+Release/
+x64/
+x86/
+[Dd]ebug/
+[Rr]elease/
+
+# Временные файлы компилятора MSVC
+*.aps
+*.ncb
+*.opendb
+*.sdf
+*.cache
+*.ilk
+*.log
+*.pdb
+*.idb
+*.iobj
+*.ipdb
+*.obj
+*.exe
+*.ilk
+
+# Файлы сборки CMake (если начнете его использовать)
+/CMakeSettings.json
+/CMakeBuild/
+/out/
