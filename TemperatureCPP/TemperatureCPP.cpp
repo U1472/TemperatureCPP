@@ -150,7 +150,7 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
         { L"T start:",  IDC_EDIT_TSTART,  &hEditTStart,  L"300"    },
         { L"T end:",    IDC_EDIT_TEND,    &hEditTEnd,    L"400"    },
         { L"lambda:",   IDC_EDIT_LAMBDA,  &hEditLambda,  L"1"      },
-        { L"n:",        IDC_EDIT_N,       &hEditN,       L"10"     },
+        { L"n:",        IDC_EDIT_N,       &hEditN,       L"1"     },
         { L"deltaX:",   IDC_EDIT_DELTAX,  &hEditDeltaX,  L"0.1"    },
         { L"epsilon:",  IDC_EDIT_EPSILON, &hEditEpsilon, L"0.01" },
         { L"t max:",    IDC_EDIT_TMAX,    &hEditTMax,    L"1000000"},
@@ -260,27 +260,16 @@ static void DoCalculation(HWND hWnd)
     }
 
     wchar_t msg[512];
-    bool isExplicit = false;
+    bool isExplicit = true;
 
     if (IsDlgButtonChecked(hWnd, IDC_CHK_JACOBI) != BST_CHECKED) {
-    }
-    else {
-        isExplicit = true;
+        isExplicit = false;
     }
 
     double C_min = a * temperatureStart * temperatureStart * temperatureStart
         + b * temperatureStart * temperatureStart
         + f * temperatureStart + g;
     if (C_min <= 1e-10) C_min = 1e-10;
-
-    double deltaT_max = 0.5 * C_min * deltaX * deltaX / lambda;
-    if (deltaT > deltaT_max) {
-        wchar_t msg[512];
-        swprintf_s(msg,
-            L"Внимание! Выбранный deltaT = %g превышает максимально допустимый для устойчивости: %g.\nРешение может быть неустойчивым.",
-            deltaT, deltaT_max);
-        MessageBoxW(hWnd, msg, L"Предупреждение", MB_OK | MB_ICONWARNING);
-    }
 
     std::vector<double> pieces(intervalCount + 1);
 
@@ -297,6 +286,15 @@ static void DoCalculation(HWND hWnd)
     int t = 0;
     if (isExplicit)
     {
+        double deltaT_max = 0.5 * C_min * deltaX * deltaX / lambda;
+        if (deltaT > deltaT_max) {
+            wchar_t msg[512];
+            swprintf_s(msg,
+                L"Внимание! Выбранный deltaT = %g превышает максимально допустимый для устойчивости: %g.\nРешение может быть неустойчивым.",
+                deltaT, deltaT_max);
+            MessageBoxW(hWnd, msg, L"Предупреждение", MB_OK | MB_ICONWARNING);
+        }
+
         std::vector<double> next(intervalCount + 1);
         while (fabs(pieces[intervalCount] - temperatureEnd) > accuracy && tMax >= t) {
             next[0] = pieces[0];
@@ -333,54 +331,58 @@ static void DoCalculation(HWND hWnd)
 
         const int N = intervalCount;
 
-        while (fabs(pieces[N] - temperatureEnd) > accuracy && tMax >= t)
+        while (fabs(pieces[N] - temperatureEnd) > accuracy && t < tMax)
         {
-            for (int i = 1; i <= N; ++i)
-            {
-                double C = FindC(a, b, f, g, pieces[i]);
-                double alpha = deltaT * lambda / (deltaX * deltaX * C);
+            std::vector<double> prevIter = pieces;
+            std::vector<double> curIter(intervalCount + 1);
 
-                lower[i] = -alpha;
-                diag[i] = 1.0 + 2.0 * alpha;
-                upper[i] = -alpha;
-                rhs[i] = pieces[i];
+            const int maxPicard = 50;
+            double diff = 1e30;
+
+            for (int picard = 0; picard < maxPicard && diff > 1e-10; ++picard)
+            {
+
+                for (int i = 1; i <= N; ++i) {
+                    double C = FindC(a, b, f, g, prevIter[i]);
+                    double alpha = deltaT * lambda / (deltaX * deltaX * C);
+                    lower[i] = -alpha;
+                    diag[i] = 1.0 + 2.0 * alpha;
+                    upper[i] = -alpha;
+                    rhs[i] = pieces[i];
+                }
+
+                {
+                    double alpha1 = -lower[1];
+                    lower[1] = 0.0;
+                    rhs[1] += alpha1 * temperatureEnd;
+                }
+                {
+                    double alphaN = -lower[N];
+                    lower[N] = -2.0 * alphaN;
+                    upper[N] = 0.0;
+                    diag[N] = 1.0 + 2.0 * alphaN;
+                }
+
+                cPrime[1] = upper[1] / diag[1];
+                dPrime[1] = rhs[1] / diag[1];
+                for (int i = 2; i <= N; ++i) {
+                    double denom = diag[i] - lower[i] * cPrime[i - 1];
+                    cPrime[i] = upper[i] / denom;
+                    dPrime[i] = (rhs[i] - lower[i] * dPrime[i - 1]) / denom;
+                }
+                curIter[N] = dPrime[N];
+                for (int i = N - 1; i >= 1; --i)
+                    curIter[i] = dPrime[i] - cPrime[i] * curIter[i + 1];
+                curIter[0] = pieces[0];
+
+                diff = 0.0;
+                for (int i = 1; i <= N; ++i)
+                    diff = (((diff) > (fabs(curIter[i] - prevIter[i]))) ? (diff) : (fabs(curIter[i] - prevIter[i])));
+
+                prevIter.swap(curIter);
             }
 
-            {
-                double C = FindC(a, b, f, g, pieces[1]);
-                double alpha = deltaT * lambda / (deltaX * deltaX * C);
-                lower[1] = 0.0;
-                // diag[1] и upper[1] уже корректны из общего цикла
-                rhs[1] += alpha * temperatureEnd;
-            }
-
-            {
-                double C = FindC(a, b, f, g, pieces[N]);
-                double alpha = deltaT * lambda / (deltaX * deltaX * C);
-                lower[N] = -2.0 * alpha;
-                upper[N] = 0.0;
-                diag[N] = 1.0 + 2.0 * alpha;
-            }
-
-            cPrime[1] = upper[1] / diag[1];
-            dPrime[1] = rhs[1] / diag[1];
-
-            for (int i = 2; i <= N; ++i)
-            {
-                double denom = diag[i] - lower[i] * cPrime[i - 1];
-                cPrime[i] = upper[i] / denom;
-                dPrime[i] = (rhs[i] - lower[i] * dPrime[i - 1]) / denom;
-            }
-
-            next[N] = dPrime[N];
-            for (int i = N - 1; i >= 1; --i)
-            {
-                next[i] = dPrime[i] - cPrime[i] * next[i + 1];
-            }
-            next[0] = pieces[0];
-
-            pieces.swap(next);
-
+            pieces.swap(prevIter);
             ++t;
         }
     }
