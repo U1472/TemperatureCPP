@@ -7,6 +7,8 @@
 #include <vector>
 #include <climits>
 #include <cstdio>
+#include <string>
+#include <sstream>
 
 #define MAX_LOADSTRING 100
 
@@ -18,7 +20,7 @@
 #define IDC_EDIT_TEND       1006
 #define IDC_EDIT_LAMBDA     1007
 #define IDC_EDIT_N          1008
-#define IDC_EDIT_DELTAX     1009
+#define IDC_EDIT_LENGHT     1009
 #define IDC_EDIT_EPSILON    1010
 #define IDC_EDIT_TMAX       1011
 #define IDC_BTN_START       1012
@@ -29,6 +31,7 @@
 #define IDC_RADIO_QUAD      1017
 #define IDC_RADIO_QUINT     1018
 #define IDC_LABEL_STEPS     1019
+#define IDC_LABEL_DELTAX    1020
 #define IDC_STATIC_BASE     1200
 
 #define DRAW_X 280
@@ -41,16 +44,15 @@ WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 
 HWND hEditA, hEditB, hEditF, hEditG;
-HWND hEditTStart, hEditTEnd, hEditLambda, hEditN, hEditDeltaX, hEditEpsilon, hEditTMax;
+HWND hEditTStart, hEditTEnd, hEditLambda, hEditN, hEditLenght, hEditEpsilon, hEditTMax;
 HWND hBtnStart;
 HWND hChkWatchTMax, hChkDrawable, hChkJacobi;
 HWND hRadioTriple, hRadioQuad, hRadioQuint;
-HWND hLabelSteps;
+HWND hLabelSteps, hLabelDeltaX;
 
 std::vector<double> g_pieces;
 bool g_hasResult = false;
 int  g_lastSteps = 0;
-bool g_updating = false;
 
 ATOM                MyRegisterClass(HINSTANCE);
 BOOL                InitInstance(HINSTANCE, int);
@@ -89,6 +91,22 @@ static double FindC(double a, double b, double f, double g, double T) {
     double c = a * T * T * T + b * T * T + f * T + g;
     return c > 1e-10 ? c : 1e-10;
 }
+
+static double FindLambda(double constant, double T) {
+    double lambda = constant * T;
+    return lambda > 1e-10 ? lambda : 1e-10;
+}
+
+static void UpdateDeltaXLabel() {
+    double n, len;
+    if (GetDbl(hEditN, n) && GetDbl(hEditLenght, len)) {
+        wchar_t buf[64];
+        swprintf_s(buf, L"%.6g м.", len / n);
+        SetWindowTextW(hLabelDeltaX, buf);
+    }
+}
+
+
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE hPrevInstance,
@@ -150,8 +168,8 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
         { L"T start:",  IDC_EDIT_TSTART,  &hEditTStart,  L"300"    },
         { L"T end:",    IDC_EDIT_TEND,    &hEditTEnd,    L"400"    },
         { L"lambda:",   IDC_EDIT_LAMBDA,  &hEditLambda,  L"1"      },
-        { L"n:",        IDC_EDIT_N,       &hEditN,       L"1"     },
-        { L"deltaX:",   IDC_EDIT_DELTAX,  &hEditDeltaX,  L"0.1"    },
+        { L"n:",        IDC_EDIT_N,       &hEditN,       L"10"     },
+        { L"lenght:",   IDC_EDIT_LENGHT,  &hEditLenght,  L"1"    },
         { L"epsilon:",  IDC_EDIT_EPSILON, &hEditEpsilon, L"0.01" },
         { L"t max:",    IDC_EDIT_TMAX,    &hEditTMax,    L"1000000"},
     };
@@ -211,6 +229,15 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
     hLabelSteps = CreateWindowW(L"STATIC", L"0",
         WS_CHILD | WS_VISIBLE | SS_LEFT,
         75, y + 2, 200, 20, hWnd, (HMENU)IDC_LABEL_STEPS, hInstance, nullptr);
+    y += 20;
+
+    // Длина шага
+    CreateWindowW(L"STATIC", L"Шаг:",
+        WS_CHILD | WS_VISIBLE,
+        10, y + 2, 60, 20, hWnd, nullptr, hInstance, nullptr);
+    hLabelDeltaX = CreateWindowW(L"STATIC", L"0",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        75, y + 2, 200, 20, hWnd, (HMENU)IDC_LABEL_DELTAX, hInstance, nullptr);
 
     // Радиокнопки по умолчанию
     SendMessage(hRadioTriple, BM_SETCHECK, BST_CHECKED, 0);
@@ -231,24 +258,26 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
+    UpdateDeltaXLabel();
     return TRUE;
 }
 
 static void DoCalculation(HWND hWnd)
 {
-    double a, b, f, g, temperatureStart, temperatureEnd, lambda, deltaX, accuracy;
+    double a, b, f, g, temperatureStart, temperatureEnd, lambda, lenght, accuracy;
     int intervalCount = 0;
 
     if (!GetDbl(hEditA, a) || !GetDbl(hEditB, b) || !GetDbl(hEditF, f) ||
         !GetDbl(hEditG, g) || !GetDbl(hEditTStart, temperatureStart) ||
         !GetDbl(hEditTEnd, temperatureEnd) || !GetDbl(hEditLambda, lambda) ||
-        !GetDbl(hEditDeltaX, deltaX) || !GetDbl(hEditEpsilon, accuracy) ||
-        !GetInt(hEditN, intervalCount) || intervalCount <= 1 || deltaX <= 0.0) {
+        !GetDbl(hEditLenght, lenght) || !GetDbl(hEditEpsilon, accuracy) ||
+        !GetInt(hEditN, intervalCount) || intervalCount <= 1 || lenght <= 0.0) {
         MessageBoxW(hWnd, L"Некорректные входные данные.", L"Ошибка",
             MB_OK | MB_ICONERROR);
         return;
     }
 
+    double deltaX = lenght / intervalCount;
     double deltaT = 0.0;
     if (IsDlgButtonChecked(hWnd, IDC_RADIO_TRIPLE) == BST_CHECKED)      deltaT = 0.001;
     else if (IsDlgButtonChecked(hWnd, IDC_RADIO_QUAD) == BST_CHECKED) deltaT = 0.0001;
@@ -473,25 +502,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
-        if (wmId == IDC_EDIT_N && wmEvent == EN_CHANGE && !g_updating) {
-            g_updating = true;
-            double n;
-            if (GetDbl(hEditN, n) && n != 0.0)
-                SetDbl(hEditDeltaX, 1.0 / n);
-            else
-                SetWindowTextW(hEditDeltaX, L"###");
-            g_updating = false;
+        if (wmId == IDC_EDIT_N && wmEvent == EN_CHANGE) {
+            UpdateDeltaXLabel();
             return 0;
         }
 
-        if (wmId == IDC_EDIT_DELTAX && wmEvent == EN_CHANGE && !g_updating) {
-            g_updating = true;
-            double dx;
-            if (GetDbl(hEditDeltaX, dx) && dx != 0.0)
-                SetDbl(hEditN, 1.0 / dx);
-            else
-                SetWindowTextW(hEditN, L"###");
-            g_updating = false;
+        if (wmId == IDC_EDIT_LENGHT && wmEvent == EN_CHANGE) {
+            UpdateDeltaXLabel();
             return 0;
         }
 
