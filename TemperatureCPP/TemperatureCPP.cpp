@@ -3,6 +3,7 @@
 
 #include "framework.h"
 #include "TemperatureCPP.h"
+#include <algorithm>
 #include <cmath>
 #include <vector>
 #include <climits>
@@ -23,15 +24,17 @@
 #define IDC_EDIT_LENGHT     1009
 #define IDC_EDIT_EPSILON    1010
 #define IDC_EDIT_TMAX       1011
-#define IDC_BTN_START       1012
-#define IDC_CHK_WATCHTMAX   1013
-#define IDC_CHK_JACOBI      1014
-#define IDC_CHK_DRAWABLE    1015
-#define IDC_RADIO_TRIPLE    1016
-#define IDC_RADIO_QUAD      1017
-#define IDC_RADIO_QUINT     1018
-#define IDC_LABEL_STEPS     1019
-#define IDC_LABEL_DELTAX    1020
+#define IDC_EDIT_XCOORD     1012
+#define IDC_BTN_START       1013
+#define IDC_BTN_DRAW        1014
+#define IDC_BTN_DRAW_COORD  1015
+#define IDC_CHK_WATCHTMAX   1016
+#define IDC_CHK_JACOBI      1017
+#define IDC_RADIO_TRIPLE    1018
+#define IDC_RADIO_QUAD      1019
+#define IDC_RADIO_QUINT     1020
+#define IDC_LABEL_STEPS     1021
+#define IDC_LABEL_DELTAX    1022
 #define IDC_STATIC_BASE     1200
 
 #define DRAW_X 280
@@ -44,15 +47,20 @@ WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 
 HWND hEditA, hEditB, hEditF, hEditG;
-HWND hEditTStart, hEditTEnd, hEditLambda, hEditN, hEditLenght, hEditEpsilon, hEditTMax;
-HWND hBtnStart;
-HWND hChkWatchTMax, hChkDrawable, hChkJacobi;
+HWND hEditTStart, hEditTEnd, hEditLambda, hEditN, hEditLength, hEditEpsilon, hEditTMax, hEditXCoord;
+HWND hBtnStart, hBtnDraw, hBtnDrawCoord;
+HWND hChkWatchTMax, hChkJacobi;
 HWND hRadioTriple, hRadioQuad, hRadioQuint;
 HWND hLabelSteps, hLabelDeltaX;
 
-std::vector<double> g_pieces;
-bool g_hasResult = false;
-int  g_lastSteps = 0;
+std::vector<double>      g_pieces;
+bool                     g_hasResult = false;
+int                      g_lastSteps = 0;
+int                      g_maxSnapshots = 100;
+int                      whichDraw = -1;
+std::vector<
+    std::vector<double>> g_snapshots;
+std::vector<double>      g_snapshotTimes;
 
 ATOM                MyRegisterClass(HINSTANCE);
 BOOL                InitInstance(HINSTANCE, int);
@@ -99,7 +107,7 @@ static double FindLambda(double constant, double T) {
 
 static void UpdateDeltaXLabel() {
     double n, len;
-    if (GetDbl(hEditN, n) && GetDbl(hEditLenght, len)) {
+    if (GetDbl(hEditN, n) && GetDbl(hEditLength, len)) {
         wchar_t buf[64];
         swprintf_s(buf, L"%.6g м.", len / n);
         SetWindowTextW(hLabelDeltaX, buf);
@@ -169,9 +177,10 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
         { L"T end:",    IDC_EDIT_TEND,    &hEditTEnd,    L"400"    },
         { L"lambda:",   IDC_EDIT_LAMBDA,  &hEditLambda,  L"1"      },
         { L"n:",        IDC_EDIT_N,       &hEditN,       L"10"     },
-        { L"lenght:",   IDC_EDIT_LENGHT,  &hEditLenght,  L"1"    },
+        { L"lenght:",   IDC_EDIT_LENGHT,  &hEditLength,  L"1"    },
         { L"epsilon:",  IDC_EDIT_EPSILON, &hEditEpsilon, L"0.01" },
         { L"t max:",    IDC_EDIT_TMAX,    &hEditTMax,    L"1000000"},
+        { L"x coord:",  IDC_EDIT_XCOORD,  &hEditXCoord,  L"0.5"},
     };
 
     int y = 10;
@@ -207,19 +216,23 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_GROUP,
         10, y, 240, 22, hWnd, (HMENU)IDC_CHK_WATCHTMAX, hInstance, nullptr);
     y += 25;
-    hChkDrawable = CreateWindowW(L"BUTTON", L"Рисовать результат",
-        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-        10, y, 240, 22, hWnd, (HMENU)IDC_CHK_DRAWABLE, hInstance, nullptr);
-    y += 25;
     hChkJacobi = CreateWindowW(L"BUTTON", L"Использовать явную схему",
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
         10, y, 240, 22, hWnd, (HMENU)IDC_CHK_JACOBI, hInstance, nullptr);
-    y += 35;
+    y += 30;
 
-    // Кнопка "Старт"
+    // Кнопки
     hBtnStart = CreateWindowW(L"BUTTON", L"Старт",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        10, y, 120, 32, hWnd, (HMENU)IDC_BTN_START, hInstance, nullptr);
+        10, y, 180, 32, hWnd, (HMENU)IDC_BTN_START, hInstance, nullptr);
+    y += 37;
+    hBtnDraw = CreateWindowW(L"BUTTON", L"Рисовать тепловую карту",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        10, y, 180, 32, hWnd, (HMENU)IDC_BTN_DRAW, hInstance, nullptr);
+    y += 37;
+    hBtnDrawCoord = CreateWindowW(L"BUTTON", L"Рисовать по координате",
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        10, y, 180, 32, hWnd, (HMENU)IDC_BTN_DRAW_COORD, hInstance, nullptr);
     y += 40;
 
     // Счётчик шагов
@@ -264,13 +277,16 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 static void DoCalculation(HWND hWnd)
 {
+    g_snapshots.clear();   // иначе история копится между запусками
+    g_snapshotTimes.clear();
+
     double a, b, f, g, temperatureStart, temperatureEnd, lambda, lenght, accuracy;
     int intervalCount = 0;
 
     if (!GetDbl(hEditA, a) || !GetDbl(hEditB, b) || !GetDbl(hEditF, f) ||
         !GetDbl(hEditG, g) || !GetDbl(hEditTStart, temperatureStart) ||
         !GetDbl(hEditTEnd, temperatureEnd) || !GetDbl(hEditLambda, lambda) ||
-        !GetDbl(hEditLenght, lenght) || !GetDbl(hEditEpsilon, accuracy) ||
+        !GetDbl(hEditLength, lenght) || !GetDbl(hEditEpsilon, accuracy) ||
         !GetInt(hEditN, intervalCount) || intervalCount <= 1 || lenght <= 0.0) {
         MessageBoxW(hWnd, L"Некорректные входные данные.", L"Ошибка",
             MB_OK | MB_ICONERROR);
@@ -288,7 +304,6 @@ static void DoCalculation(HWND hWnd)
         return;
     }
 
-    wchar_t msg[512];
     bool isExplicit = true;
 
     if (IsDlgButtonChecked(hWnd, IDC_CHK_JACOBI) != BST_CHECKED) {
@@ -359,6 +374,8 @@ static void DoCalculation(HWND hWnd)
         std::vector<double> dPrime(intervalCount + 1);
 
         const int N = intervalCount;
+        int snapshotInterval = 1;
+        int snapshotStep = 0;
 
         while (fabs(pieces[N] - temperatureEnd) > accuracy && t < tMax)
         {
@@ -411,8 +428,43 @@ static void DoCalculation(HWND hWnd)
                 prevIter.swap(curIter);
             }
 
+            snapshotStep++;
+
+            if (g_snapshots.size() >= g_maxSnapshots) {
+                // Вот тут надо объяснение
+                /*
+                Суть алгоритма:
+                Вначале сохраняем pieces на каждой итерации в g_snapshots
+                Ждём когда общий счёт дойдёт до предела g_maxSnapshots
+                Удаляем каждый второй элемент из g_snapshots
+                Теперь записываем каждый второй pieces
+                Ждём когда общий счёт дойдёт до предела g_maxSnapshots опять (В общем 200 итераций)
+                Удаляем каждый второй шаг из уже накопившихся (остаётся каждый четвертый из первых 200)
+                Теперь записываем каждый четвертый шаг
+                Ждём когда общий счёт дойдёт до предела g_maxSnapshots в третий раз (В сумме - 400 итераций)
+                ...
+                Таким образом, у нас всегда будет от 50 до 100 снапшотов,
+                которые находятся на одинаковом расстоянии друг от друга
+                */
+                std::vector<std::vector<double>> kept;
+                std::vector<double> keptTimes;
+                for (size_t i = 1; i < g_snapshots.size(); i += 2) {
+                    kept.push_back(std::move(g_snapshots[i]));
+                    keptTimes.push_back(g_snapshotTimes[i]);
+                }
+                g_snapshots = std::move(kept);
+                g_snapshotTimes = std::move(keptTimes);
+                snapshotInterval *= 2;
+            }
+
             pieces.swap(prevIter);
             ++t;
+
+            if (snapshotStep == snapshotInterval) {
+                g_snapshots.push_back(pieces);
+                g_snapshotTimes.push_back(t);
+                snapshotStep = 0;
+            }
         }
     }
 
@@ -424,69 +476,226 @@ static void DoCalculation(HWND hWnd)
     wchar_t buf[64];
     swprintf_s(buf, L"%d", t);
     SetWindowTextW(hLabelSteps, buf);
-
-    InvalidateRect(hWnd, nullptr, TRUE);
 }
 
 
+static void TemperatureToRGB(double value, int& r, int& g, int& b)
+{
+    value = (value < 0.0) ? 0.0 : (value > 1.0 ? 1.0 : value);
+    if (value < 0.33333) {
+        r = 0;
+        g = (int)(255.0 * value * 3.0);
+        b = 255;
+    }
+    else if (value < 0.66666) {
+        r = (int)(255.0 * (value - 0.33333) * 3.0);
+        g = 255;
+        b = (int)(255.0 * (1.0 - (value - 0.33333) * 3.0));
+    }
+    else {
+        r = 255;
+        g = (int)(255.0 * (1.0 - (value - 0.66666) * 3.0));
+        b = 0;
+    }
+    r = (r < 0) ? 0 : (r > 255 ? 255 : r);
+    g = (g < 0) ? 0 : (g > 255 ? 255 : g);
+    b = (b < 0) ? 0 : (b > 255 ? 255 : b);
+}
+
 static void PaintBars(HWND hWnd, HDC hdc)
 {
-    if (!g_hasResult || g_pieces.empty()) return;
-    if (IsDlgButtonChecked(hWnd, IDC_CHK_DRAWABLE) != BST_CHECKED) return;
+    if (!g_hasResult) return;
+
+    // Выбираем источник строк: снапшоты, иначе — финальный срез (одна строка)
+    const std::vector<std::vector<double>>* rows = nullptr;
+    std::vector<std::vector<double>> fallback;
+    if (!g_snapshots.empty()) {
+        rows = &g_snapshots;
+    }
+    else if (!g_pieces.empty()) {
+        fallback.push_back(g_pieces);
+        rows = &fallback;
+    }
+    else {
+        return;
+    }
 
     double temperatureStart = 0.0, temperatureEnd = 0.0;
-    GetDbl(hEditTStart, temperatureStart);
-    GetDbl(hEditTEnd, temperatureEnd);
+    if (!GetDbl(hEditTStart, temperatureStart) || !GetDbl(hEditTEnd, temperatureEnd))
+        return;
+    double denom = temperatureEnd - temperatureStart;
 
     RECT area = { DRAW_X, DRAW_Y, DRAW_X + DRAW_W, DRAW_Y + DRAW_H };
     HBRUSH hWhite = CreateSolidBrush(RGB(255, 255, 255));
     FillRect(hdc, &area, hWhite);
     DeleteObject(hWhite);
 
-    int n = (int)g_pieces.size();
-    double denom = (temperatureEnd - temperatureStart);
-    double stepSize = (double)DRAW_W / n;
+    int numRows = (int)rows->size();       // число снапшотов (время)
+    int numCols = (int)(*rows)[0].size();  // число узлов (пространство)
+    if (numRows == 0 || numCols == 0) return;
 
-    for (int i = 0; i < n; ++i) {
-        double value = denom != 0.0
-            ? (g_pieces[i] - temperatureStart) / denom
-            : 0.0;
+    double cellW = (double)DRAW_W / numCols;
+    double cellH = (double)DRAW_H / numRows;
 
-        int r, g, b;
-        if (value < 0.33333) {
-            r = 0;
-            g = (int)(255.0 * value * 3.0);
-            b = 255;
+    // Кэш кисти: пересоздаём только при смене цвета
+    COLORREF lastColor = 0xFFFFFFFF;
+    HBRUSH lastBrush = nullptr;
+
+    for (int s = 0; s < numRows; ++s) {
+        // t = 0 (snapshot 0) внизу, растёт вверх
+        int top = DRAW_Y + DRAW_H - (int)(cellH * (s + 1));
+        int bottom = DRAW_Y + DRAW_H - (int)(cellH * s);
+
+        const auto& snap = (*rows)[s];
+        for (int col = 0; col < numCols; ++col) {
+            double v = (denom != 0.0) ? (snap[col] - temperatureStart) / denom : 0.0;
+            int r, g, b;
+            TemperatureToRGB(v, r, g, b);
+            COLORREF color = RGB(r, g, b);
+
+            RECT rc;
+            rc.left = DRAW_X + (int)(cellW * col);
+            rc.right = DRAW_X + (int)(cellW * (col + 1));
+            rc.top = top;
+            rc.bottom = bottom;
+
+            if (color != lastColor) {
+                if (lastBrush) DeleteObject(lastBrush);
+                lastBrush = CreateSolidBrush(color);
+                lastColor = color;
+            }
+            FillRect(hdc, &rc, lastBrush);
         }
-        else if (value < 0.66666) {
-            r = (int)(255.0 * (value - 0.33333) * 3.0);
-            g = 255;
-            b = (int)(255.0 * (1.0 - (value - 0.33333) * 3.0));
-        }
-        else {
-            r = 255;
-            g = (int)(255.0 * (1.0 - (value - 0.66666) * 3.0));
-            b = 0;
-        }
-
-        if (r < 0) r = 0; if (r > 255) r = 255;
-        if (g < 0) g = 0; if (g > 255) g = 255;
-        if (b < 0) b = 0; if (b > 255) b = 255;
-
-        RECT rc;
-        rc.left = DRAW_X + (int)(stepSize * i);
-        rc.right = DRAW_X + (int)(stepSize * (i + 1));
-        rc.top = DRAW_Y;
-        rc.bottom = DRAW_Y + DRAW_H;
-
-        HBRUSH br = CreateSolidBrush(RGB(r, g, b));
-        FillRect(hdc, &rc, br);
-        DeleteObject(br);
     }
+    if (lastBrush) DeleteObject(lastBrush);
 
-    // Рамка вокруг графика
     FrameRect(hdc, &area, (HBRUSH)GetStockObject(BLACK_BRUSH));
 }
+
+static void PaintGraph(HWND hWnd, HDC hdc, double x_coord)
+{
+    if (!g_hasResult || g_snapshots.empty()) return;
+    if (g_snapshots.size() != g_snapshotTimes.size()) return;
+
+    // ── Параметры задачи ─────────────────────────────────────────────
+    double temperatureStart, temperatureEnd, length;
+    int n;
+    if (!GetDbl(hEditTStart, temperatureStart) ||
+        !GetDbl(hEditTEnd, temperatureEnd) ||
+        !GetDbl(hEditLength, length) ||
+        !GetInt(hEditN, n) || n < 1 || length <= 0.0)
+        return;
+
+    const int numPoints = (int)g_snapshots[0].size();
+    const int intervals = numPoints - 1;
+    const double deltaX = length / intervals;
+
+    // ── Индексы сетки для x_coord ─────────────────────────────────────
+    double xi = x_coord / deltaX;
+    if (xi < 0.0)        xi = 0.0;
+    if (xi > intervals)  xi = intervals;
+
+    int    i0 = (int)std::floor(xi);
+    int    i1 = (std::min)(i0 + 1, intervals);
+    double f = xi - i0;                  // f=0.5 → ровно середина
+    if (i0 == i1) f = 0.0;
+
+    // ── Извлекаем T(t) ───────────────────────────────────────────────
+    const int numSnap = (int)g_snapshots.size();
+    std::vector<double> temps(numSnap);
+    for (int s = 0; s < numSnap; ++s) {
+        const auto& snap = g_snapshots[s];
+        temps[s] = (1.0 - f) * snap[i0] + f * snap[i1];   // среднее / интерполяция
+    }
+
+    // ── Диапазоны осей ───────────────────────────────────────────────
+    double Tmin = (std::min)(temperatureStart, temperatureEnd);
+    double Tmax = (std::max)(temperatureStart, temperatureEnd);
+    if (Tmax - Tmin < 1e-12) Tmax = Tmin + 1.0;
+
+    double tMin = (double)g_snapshotTimes.front();
+    double tMax = (double)g_snapshotTimes.back();
+    if (tMax - tMin < 1e-12) tMax = tMin + 1.0;
+
+    // 5% отступа по краям, чтобы точки не «прилипали» к рамке
+    const double TPad = (Tmax - Tmin) * 0.05;
+    const double tPad = (tMax - tMin) * 0.05;
+    Tmin -= TPad; Tmax += TPad;
+    tMin -= tPad; tMax += tPad;
+
+    // ── Очистка области ──────────────────────────────────────────────
+    RECT area = { DRAW_X, DRAW_Y, DRAW_X + DRAW_W, DRAW_Y + DRAW_H };
+    HBRUSH hWhite = CreateSolidBrush(RGB(255, 255, 255));
+    FillRect(hdc, &area, hWhite);
+    DeleteObject(hWhite);
+
+    // ── Отображение координат → пиксели ──────────────────────────────
+    auto toPx = [&](double t) {
+        return DRAW_X + (int)((t - tMin) / (tMax - tMin) * DRAW_W);
+        };
+    auto toPy = [&](double T) {
+        return DRAW_Y + DRAW_H - (int)((T - Tmin) / (Tmax - Tmin) * DRAW_H);
+        };
+
+    // ── Сетка ────────────────────────────────────────────────────────
+    HPEN hGrid = CreatePen(PS_SOLID, 1, RGB(200, 200, 200));
+    HPEN hOld = (HPEN)SelectObject(hdc, hGrid);
+
+    for (int k = 0; k <= 4; ++k) {                  // вертикальные линии = время
+        int px = toPx(tMin + (tMax - tMin) * k / 4.0);
+        MoveToEx(hdc, px, DRAW_Y, nullptr);
+        LineTo(hdc, px, DRAW_Y + DRAW_H);
+    }
+    for (int k = 0; k <= 4; ++k) {                  // горизонтальные линии = температура
+        int py = toPy(Tmin + (Tmax - Tmin) * k / 4.0);
+        MoveToEx(hdc, DRAW_X, py, nullptr);
+        LineTo(hdc, DRAW_X + DRAW_W, py);
+    }
+
+    // ── Кривая T(t): по X — время, по Y — температура ────────────────
+    HPEN hCurve = CreatePen(PS_SOLID, 2, RGB(0, 0, 200));
+    SelectObject(hdc, hCurve);
+    for (int s = 0; s < numSnap; ++s) {
+        int px = toPx((double)g_snapshotTimes[s]);   // было: toPx(temps[s])
+        int py = toPy(temps[s]);                     // было: toPy(snapshotTimes[s])
+        if (s == 0) MoveToEx(hdc, px, py, nullptr);
+        else        LineTo(hdc, px, py);
+    }
+
+    // Маркеры
+    for (int s = 0; s < numSnap; ++s) {
+        int px = toPx((double)g_snapshotTimes[s]);
+        int py = toPy(temps[s]);
+        Rectangle(hdc, px - 2, py - 2, px + 3, py + 3);
+    }
+
+    SelectObject(hdc, hOld);
+    DeleteObject(hCurve);
+    DeleteObject(hGrid);
+
+    // ── Подписи осей (тоже меняются местами) ─────────────────────────
+    wchar_t buf[128];
+
+    // Снизу — подписи ВРЕМЕНИ (ось X)
+    swprintf_s(buf, L"%d", g_snapshotTimes.front());
+    TextOutW(hdc, DRAW_X + 2, DRAW_Y + DRAW_H + 4, buf, (int)wcslen(buf));
+    swprintf_s(buf, L"%d", g_snapshotTimes.back());
+    int tw = (int)wcslen(buf) * 8;
+    TextOutW(hdc, DRAW_X + DRAW_W - tw, DRAW_Y + DRAW_H + 4, buf, (int)wcslen(buf));
+
+    // Слева — подписи ТЕМПЕРАТУРЫ (ось Y)
+    swprintf_s(buf, L"%.1f", Tmin + TPad);
+    TextOutW(hdc, DRAW_X - 45, DRAW_Y + DRAW_H - 8, buf, (int)wcslen(buf));
+    swprintf_s(buf, L"%.1f", Tmax - TPad);
+    TextOutW(hdc, DRAW_X - 45, DRAW_Y, buf, (int)wcslen(buf));
+
+    // Заголовок
+    swprintf_s(buf, L"T(t), x = %.3f м", x_coord);
+    TextOutW(hdc, DRAW_X + 6, DRAW_Y + 6, buf, (int)wcslen(buf));
+
+    FrameRect(hdc, &area, (HBRUSH)GetStockObject(BLACK_BRUSH));
+}
+
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -512,7 +721,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
-        if (wmId == IDC_CHK_DRAWABLE && wmEvent == BN_CLICKED) {
+        if (wmId == IDC_BTN_DRAW && wmEvent == BN_CLICKED) {
+            whichDraw = 1;
+            InvalidateRect(hWnd, nullptr, TRUE);
+            return 0;
+        }
+
+        if (wmId == IDC_BTN_DRAW_COORD && wmEvent == BN_CLICKED) {
+            whichDraw = 2;
             InvalidateRect(hWnd, nullptr, TRUE);
             return 0;
         }
@@ -534,7 +750,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
-        PaintBars(hWnd, hdc);
+        double xCoord;
+        GetDbl(hEditA, xCoord);
+
+        switch (whichDraw)
+        {
+        case 1:
+        {
+            PaintBars(hWnd, hdc);
+        }
+        break;
+        case 2:
+        {
+            double xCoord;
+            GetDbl(hEditXCoord, xCoord);
+            PaintGraph(hWnd, hdc, xCoord);
+        }
+        break;
+        default:
+        {}
+        break;
+        }
+        
         EndPaint(hWnd, &ps);
     }
     break;
@@ -567,6 +804,4 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     return (INT_PTR)FALSE;
 }
 
-// Неявную схему реализовать
 // Сравнить что происходит при c || lambda = const и c || lambda != const
-// Сохранять результат каждого шага для будущей отрисовки на графике абсциса=t, ордината=T по конкретной точке
