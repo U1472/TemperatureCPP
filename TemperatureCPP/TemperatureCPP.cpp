@@ -3,38 +3,39 @@
 
 #include "framework.h"
 #include "TemperatureCPP.h"
+#include <windows.h>
 #include <algorithm>
 #include <cmath>
 #include <vector>
 #include <climits>
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 #include <sstream>
+#include <unordered_map>
+#include "parser.h"
 
 #define MAX_LOADSTRING 100
 
-#define IDC_EDIT_A          1001
-#define IDC_EDIT_B          1002
-#define IDC_EDIT_F          1003
-#define IDC_EDIT_G          1004
-#define IDC_EDIT_TSTART     1005
-#define IDC_EDIT_TEND       1006
-#define IDC_EDIT_LAMBDA     1007
-#define IDC_EDIT_N          1008
-#define IDC_EDIT_LENGHT     1009
-#define IDC_EDIT_EPSILON    1010
-#define IDC_EDIT_TMAX       1011
-#define IDC_EDIT_XCOORD     1012
-#define IDC_BTN_START       1013
-#define IDC_BTN_DRAW        1014
-#define IDC_BTN_DRAW_COORD  1015
-#define IDC_CHK_WATCHTMAX   1016
-#define IDC_CHK_JACOBI      1017
-#define IDC_RADIO_TRIPLE    1018
-#define IDC_RADIO_QUAD      1019
-#define IDC_RADIO_QUINT     1020
-#define IDC_LABEL_STEPS     1021
-#define IDC_LABEL_DELTAX    1022
+#define IDC_EDIT_TSTART     1001
+#define IDC_EDIT_TEND       1002
+#define IDC_EDIT_LAMBDA     1003
+#define IDC_EDIT_C          1004
+#define IDC_EDIT_N          1005
+#define IDC_EDIT_LENGHT     1006
+#define IDC_EDIT_EPSILON    1007
+#define IDC_EDIT_TMAX       1008
+#define IDC_EDIT_XCOORD     1009
+#define IDC_BTN_START       1010
+#define IDC_BTN_DRAW        1011
+#define IDC_BTN_DRAW_COORD  1012
+#define IDC_CHK_WATCHTMAX   1013
+#define IDC_CHK_JACOBI      1014
+#define IDC_RADIO_TRIPLE    1015
+#define IDC_RADIO_QUAD      1016
+#define IDC_RADIO_QUINT     1017
+#define IDC_LABEL_STEPS     1018
+#define IDC_LABEL_DELTAX    1019
 #define IDC_STATIC_BASE     1200
 
 #define DRAW_X 280
@@ -46,8 +47,7 @@ HINSTANCE hInst;
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 
-HWND hEditA, hEditB, hEditF, hEditG;
-HWND hEditTStart, hEditTEnd, hEditLambda, hEditN, hEditLength, hEditEpsilon, hEditTMax, hEditXCoord;
+HWND hEditTStart, hEditTEnd, hEditLambda, hEditC, hEditN, hEditLength, hEditEpsilon, hEditTMax, hEditXCoord;
 HWND hBtnStart, hBtnDraw, hBtnDrawCoord;
 HWND hChkWatchTMax, hChkJacobi;
 HWND hRadioTriple, hRadioQuad, hRadioQuint;
@@ -56,7 +56,7 @@ HWND hLabelSteps, hLabelDeltaX;
 std::vector<double>      g_pieces;
 bool                     g_hasResult = false;
 int                      g_lastSteps = 0;
-int                      g_maxSnapshots = 100;
+int                      g_maxSnapshots = 1000;
 int                      whichDraw = -1;
 std::vector<
     std::vector<double>> g_snapshots;
@@ -89,20 +89,23 @@ static bool GetInt(HWND h, int& out) {
     return true;
 }
 
+static bool GetString(HWND h, std::wstring& out) {
+    int len = GetWindowTextLengthW(h);
+    if (len <= 0) {
+        out.clear();
+        return false;
+    }
+    out.resize(len + 1);
+    int copied = GetWindowTextW(h, &out[0], len + 1);
+    out.resize(copied);
+
+    return copied > 0;
+}
+
 static void SetDbl(HWND h, double v) {
     wchar_t buf[64];
     swprintf_s(buf, L"%.6g", v);
     SetWindowTextW(h, buf);
-}
-
-static double FindC(double a, double b, double f, double g, double T) {
-    double c = a * T * T * T + b * T * T + f * T + g;
-    return c > 1e-10 ? c : 1e-10;
-}
-
-static double FindLambda(double constant, double T) {
-    double lambda = constant * T;
-    return lambda > 1e-10 ? lambda : 1e-10;
 }
 
 static void UpdateDeltaXLabel() {
@@ -114,6 +117,17 @@ static void UpdateDeltaXLabel() {
     }
 }
 
+static std::string WStringToString(const std::wstring& wstr) {
+    if (wstr.empty()) return std::string();
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0,
+        wstr.c_str(), (int)wstr.size(),
+        nullptr, 0, nullptr, nullptr);
+    std::string result(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0,
+        wstr.c_str(), (int)wstr.size(),
+        &result[0], size_needed, nullptr, nullptr);
+    return result;
+}
 
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
@@ -169,18 +183,15 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
     };
 
     FieldDef fields[] = {
-        { L"a:",        IDC_EDIT_A,       &hEditA,       L"0"      },
-        { L"b:",        IDC_EDIT_B,       &hEditB,       L"0.00001"},
-        { L"f:",        IDC_EDIT_F,       &hEditF,       L"0.003"  },
-        { L"g:",        IDC_EDIT_G,       &hEditG,       L"10"     },
-        { L"T start:",  IDC_EDIT_TSTART,  &hEditTStart,  L"300"    },
-        { L"T end:",    IDC_EDIT_TEND,    &hEditTEnd,    L"400"    },
-        { L"lambda:",   IDC_EDIT_LAMBDA,  &hEditLambda,  L"1"      },
-        { L"n:",        IDC_EDIT_N,       &hEditN,       L"10"     },
-        { L"lenght:",   IDC_EDIT_LENGHT,  &hEditLength,  L"1"    },
-        { L"epsilon:",  IDC_EDIT_EPSILON, &hEditEpsilon, L"0.01" },
-        { L"t max:",    IDC_EDIT_TMAX,    &hEditTMax,    L"1000000"},
-        { L"x coord:",  IDC_EDIT_XCOORD,  &hEditXCoord,  L"0.5"},
+        { L"T start:",  IDC_EDIT_TSTART,  &hEditTStart,  L"300"                                 },
+        { L"T end:",    IDC_EDIT_TEND,    &hEditTEnd,    L"400"                                 },
+        { L"lambda:",   IDC_EDIT_LAMBDA,  &hEditLambda,  L"1"                                   },
+        { L"c:",        IDC_EDIT_C,       &hEditC,       L"T^3*0 + T^2*0.00001 + T*0.003 + 10"  },
+        { L"n:",        IDC_EDIT_N,       &hEditN,       L"10"                                  },
+        { L"lenght:",   IDC_EDIT_LENGHT,  &hEditLength,  L"1"                                   },
+        { L"epsilon:",  IDC_EDIT_EPSILON, &hEditEpsilon, L"0.01"                                },
+        { L"t max:",    IDC_EDIT_TMAX,    &hEditTMax,    L"1000000"                             },
+        { L"x coord:",  IDC_EDIT_XCOORD,  &hEditXCoord,  L"0.5"                                 },
     };
 
     int y = 10;
@@ -191,7 +202,7 @@ static void CreateControls(HWND hWnd, HINSTANCE hInstance)
 
         *fd.edit = CreateWindowW(L"EDIT", fd.defVal,
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | ES_LEFT,
-            130, y, 120, 22, hWnd,
+            130, y, 60, 22, hWnd,
             (HMENU)(INT_PTR)fd.editId, hInstance, nullptr);
         y += 28;
     }
@@ -275,23 +286,28 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
     return TRUE;
 }
 
+// Парсер ещё не распознает тригонометрию, мат. константы и экспоненциальную запись. + не работает умножение без *
 static void DoCalculation(HWND hWnd)
 {
+    Parser parser;
     g_snapshots.clear();   // иначе история копится между запусками
     g_snapshotTimes.clear();
 
-    double a, b, f, g, temperatureStart, temperatureEnd, lambda, lenght, accuracy;
+    double temperatureStart, temperatureEnd, lenght, accuracy;
+    std::wstring cStr, lambdaStr;
     int intervalCount = 0;
 
-    if (!GetDbl(hEditA, a) || !GetDbl(hEditB, b) || !GetDbl(hEditF, f) ||
-        !GetDbl(hEditG, g) || !GetDbl(hEditTStart, temperatureStart) ||
-        !GetDbl(hEditTEnd, temperatureEnd) || !GetDbl(hEditLambda, lambda) ||
+    if (!GetString(hEditC, cStr) || !GetString(hEditLambda, lambdaStr) ||
+        !GetDbl(hEditTStart, temperatureStart) || !GetDbl(hEditTEnd, temperatureEnd) ||
         !GetDbl(hEditLength, lenght) || !GetDbl(hEditEpsilon, accuracy) ||
         !GetInt(hEditN, intervalCount) || intervalCount <= 1 || lenght <= 0.0) {
         MessageBoxW(hWnd, L"Некорректные входные данные.", L"Ошибка",
             MB_OK | MB_ICONERROR);
         return;
     }
+
+    auto findC = parser.compileRPN(parser.shuntingYard(WStringToString(cStr)));
+    auto findLambda = parser.compileRPN(parser.shuntingYard(WStringToString(lambdaStr)));
 
     double deltaX = lenght / intervalCount;
     double deltaT = 0.0;
@@ -310,10 +326,11 @@ static void DoCalculation(HWND hWnd)
         isExplicit = false;
     }
 
-    double C_min = a * temperatureStart * temperatureStart * temperatureStart
-        + b * temperatureStart * temperatureStart
-        + f * temperatureStart + g;
+    double C_min = findC(temperatureStart);
+    double lambda_min = findLambda(temperatureStart);
+
     if (C_min <= 1e-10) C_min = 1e-10;
+    if (lambda_min <= 1e-10) lambda_min = 1e-10;
 
     std::vector<double> pieces(intervalCount + 1);
 
@@ -330,7 +347,7 @@ static void DoCalculation(HWND hWnd)
     int t = 0;
     if (isExplicit)
     {
-        double deltaT_max = 0.5 * C_min * deltaX * deltaX / lambda;
+        double deltaT_max = 0.5 * C_min * deltaX * deltaX / lambda_min;
         if (deltaT > deltaT_max) {
             wchar_t msg[512];
             swprintf_s(msg,
@@ -344,15 +361,16 @@ static void DoCalculation(HWND hWnd)
             next[0] = pieces[0];
 
             for (int i = 1; i < intervalCount; ++i) {
-                double C = FindC(a, b, f, g, pieces[i]);
+                double C = findC(pieces[i]);
                 next[i] = pieces[i]
-                    + lambda * deltaT
+                    + findLambda(pieces[i]) * deltaT
                     * (pieces[i + 1] - 2 * pieces[i] + pieces[i - 1])
                     / (deltaX * deltaX * C);
             }
 
             int last = intervalCount;
-            double C = FindC(a, b, f, g, pieces[last]);
+            double C = findC(pieces[last]);
+            double lambda = findLambda(pieces[last]);
             next[last] = pieces[last]
                 + deltaT * lambda * 2 * (pieces[last - 1] - pieces[last])
                 / (deltaX * deltaX * C);
@@ -387,26 +405,45 @@ static void DoCalculation(HWND hWnd)
 
             for (int picard = 0; picard < maxPicard && diff > 1e-10; ++picard)
             {
+                auto lambda_face = [&](int i, int j) {
+                    double li = findLambda(prevIter[i]);
+                    double lj = findLambda(prevIter[j]);
+                    return 2.0 * li * lj / (li + lj);
+                    };
 
                 for (int i = 1; i <= N; ++i) {
-                    double C = FindC(a, b, f, g, prevIter[i]);
-                    double alpha = deltaT * lambda / (deltaX * deltaX * C);
-                    lower[i] = -alpha;
-                    diag[i] = 1.0 + 2.0 * alpha;
-                    upper[i] = -alpha;
+                    double C = findC(prevIter[i]);
+                    double lam_im = (i > 1) ? lambda_face(i, i - 1) : 0.0;
+                    double lam_ip = (i < N) ? lambda_face(i, i + 1) : 0.0;
+
+                    double a_im = deltaT * lam_im / (deltaX * deltaX * C);
+                    double a_ip = deltaT * lam_ip / (deltaX * deltaX * C);
+
+                    lower[i] = -a_im;
+                    diag[i] = 1.0 + a_im + a_ip;
+                    upper[i] = -a_ip;
                     rhs[i] = pieces[i];
                 }
 
                 {
-                    double alpha1 = -lower[1];
+                    double C1 = findC(prevIter[1]);
+                    double lam_0 = findLambda(temperatureEnd);
+                    double lam_1 = findLambda(prevIter[1]);
+                    double lam_face_0 = 2.0 * lam_0 * lam_1 / (lam_0 + lam_1);
+                    double a_0 = deltaT * lam_face_0 / (deltaX * deltaX * C1);
+
                     lower[1] = 0.0;
-                    rhs[1] += alpha1 * temperatureEnd;
+                    diag[1] += a_0;
+                    rhs[1] += a_0 * temperatureEnd;
                 }
                 {
-                    double alphaN = -lower[N];
-                    lower[N] = -2.0 * alphaN;
+                    double C_N = findC(prevIter[N]);
+                    double lam_face = lambda_face(N, N - 1);
+                    double a_im = deltaT * lam_face / (deltaX * deltaX * C_N);
+
+                    lower[N] = -2.0 * a_im;
                     upper[N] = 0.0;
-                    diag[N] = 1.0 + 2.0 * alphaN;
+                    diag[N] = 1.0 + 2.0 * a_im;
                 }
 
                 cPrime[1] = upper[1] / diag[1];
@@ -677,21 +714,27 @@ static void PaintGraph(HWND hWnd, HDC hdc, double x_coord)
     wchar_t buf[128];
 
     // Снизу — подписи ВРЕМЕНИ (ось X)
-    swprintf_s(buf, L"%d", g_snapshotTimes.front());
+    swprintf_s(buf, L"%f", g_snapshotTimes.front());
     TextOutW(hdc, DRAW_X + 2, DRAW_Y + DRAW_H + 4, buf, (int)wcslen(buf));
-    swprintf_s(buf, L"%d", g_snapshotTimes.back());
+    swprintf_s(buf, L"%f", g_snapshotTimes.back());
     int tw = (int)wcslen(buf) * 8;
     TextOutW(hdc, DRAW_X + DRAW_W - tw, DRAW_Y + DRAW_H + 4, buf, (int)wcslen(buf));
 
     // Слева — подписи ТЕМПЕРАТУРЫ (ось Y)
-    swprintf_s(buf, L"%.1f", Tmin + TPad);
-    TextOutW(hdc, DRAW_X - 45, DRAW_Y + DRAW_H - 8, buf, (int)wcslen(buf));
+    // Верхняя подпись (Tmax)
     swprintf_s(buf, L"%.1f", Tmax - TPad);
-    TextOutW(hdc, DRAW_X - 45, DRAW_Y, buf, (int)wcslen(buf));
+    TextOutW(hdc, DRAW_X - 35, DRAW_Y + 2, buf, (int)wcslen(buf));
+
+    // Нижняя подпись (Tmin) — сдвинем чуть выше, чтобы не обрезалась
+    swprintf_s(buf, L"%.1f", Tmin + TPad);
+    TextOutW(hdc, DRAW_X - 35, DRAW_Y + DRAW_H - 16, buf, (int)wcslen(buf));
 
     // Заголовок
+    SetBkMode(hdc, OPAQUE);
+    SetBkColor(hdc, RGB(255, 255, 255)); // Белый фон под текстом
     swprintf_s(buf, L"T(t), x = %.3f м", x_coord);
-    TextOutW(hdc, DRAW_X + 6, DRAW_Y + 6, buf, (int)wcslen(buf));
+    TextOutW(hdc, DRAW_X + 10, DRAW_Y + 10, buf, (int)wcslen(buf));
+    SetBkMode(hdc, TRANSPARENT); // Вернуть прозрачный фон для остальных надписей
 
     FrameRect(hdc, &area, (HBRUSH)GetStockObject(BLACK_BRUSH));
 }
@@ -751,7 +794,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
         double xCoord;
-        GetDbl(hEditA, xCoord);
+        GetDbl(hEditXCoord, xCoord);
 
         switch (whichDraw)
         {
@@ -768,7 +811,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
         default:
-        {}
+        {
+
+        }
         break;
         }
         
@@ -803,5 +848,3 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     }
     return (INT_PTR)FALSE;
 }
-
-// Сравнить что происходит при c || lambda = const и c || lambda != const

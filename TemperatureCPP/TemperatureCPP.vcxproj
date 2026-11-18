@@ -128,11 +128,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
+    <ClInclude Include="parser.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="TemperatureCPP.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="parser.cpp" />
     <ClCompile Include="TemperatureCPP.cpp" />
   </ItemGroup>
   <ItemGroup>
